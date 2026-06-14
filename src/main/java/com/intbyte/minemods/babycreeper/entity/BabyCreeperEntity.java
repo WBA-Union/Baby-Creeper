@@ -245,6 +245,8 @@ public class BabyCreeperEntity extends TamableAnimal implements LockingTask {
     @Override
     public void die(DamageSource damageSource) {
         if (!this.level().isClientSide) {
+            this.explodeWithoutBlockDamage(NORMAL_DEATH_EXPLOSION_POWER);
+
             ItemStack helmet = this.getItemBySlot(EquipmentSlot.HEAD);
             if (!helmet.isEmpty()) {
                 this.spawnAtLocation(helmet);
@@ -266,15 +268,18 @@ public class BabyCreeperEntity extends TamableAnimal implements LockingTask {
     }
 
     @Override
-    protected void actuallyHurt(DamageSource damageSource, float damageAmount) {
-        if (!this.level().isClientSide && this.isEnchantedAppleCharged()) {
+    protected void actuallyHurt(DamageSource source, float amount) {
+        float healthAfterDamage = this.getHealth() - amount;
+
+        if (!this.level().isClientSide
+                && this.isEnchantedAppleCharged()
+                && healthAfterDamage <= 0.0F) {
+
             this.explodeChargedAndSurvive();
             return;
         }
-        if (!this.level().isClientSide) {
-            this.explodeWithoutBlockDamage(NORMAL_DEATH_EXPLOSION_POWER);
-        }
-        super.actuallyHurt(damageSource, damageAmount);
+
+        super.actuallyHurt(source, amount);
     }
 
     private void explodeChargedAndSurvive() {

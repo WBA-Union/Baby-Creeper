@@ -29,6 +29,21 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.armortrim.ArmorTrim;
 import net.minecraftforge.client.ForgeHooksClient;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.level.block.AbstractSkullBlock;
+import net.minecraft.world.level.block.SkullBlock;
+import net.minecraft.client.renderer.blockentity.SkullBlockRenderer;
+import net.minecraft.client.renderer.blockentity.BlockEntityRenderDispatcher;
+import net.minecraft.client.model.SkullModelBase;
+import net.minecraft.client.renderer.blockentity.SkullBlockRenderer;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.level.block.AbstractSkullBlock;
+import net.minecraft.world.level.block.SkullBlock;
+import com.mojang.authlib.GameProfile;
+import net.minecraft.nbt.CompoundTag;
+import com.mojang.math.Axis;
+import com.mojang.authlib.GameProfile;
+import net.minecraft.nbt.CompoundTag;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Locale;
@@ -53,13 +68,15 @@ public class BabyCreeperHelmetLayer
 
     private final HumanoidModel<BabyCreeperEntity> helmetModel;
     private final TextureAtlas armorTrimAtlas;
+    private final Map<SkullBlock.Type, SkullModelBase> skullModels;
 
     public BabyCreeperHelmetLayer(RenderLayerParent<BabyCreeperEntity, BabyCreeperModel<BabyCreeperEntity>> parent) {
         super(parent);
         this.helmetModel = new HumanoidModel<>(
-                Minecraft.getInstance().getEntityModels().bakeLayer(ModelLayers.PLAYER_SLIM));
+                Minecraft.getInstance().getEntityModels().bakeLayer(ModelLayers.ARMOR_STAND_INNER_ARMOR));
         ModelManager modelManager = Minecraft.getInstance().getModelManager();
         this.armorTrimAtlas = modelManager.getAtlas(Sheets.ARMOR_TRIMS_SHEET);
+        this.skullModels = SkullBlockRenderer.createSkullRenderers(Minecraft.getInstance().getEntityModels());
     }
 
     @Override
@@ -70,8 +87,16 @@ public class BabyCreeperHelmetLayer
         if (helmet.isEmpty()) return;
 
         Item item = helmet.getItem();
-        if (!(item instanceof ArmorItem armorItem)) return;
-        if (armorItem.getEquipmentSlot() != EquipmentSlot.HEAD) return;
+        if (item instanceof BlockItem blockItem && blockItem.getBlock() instanceof AbstractSkullBlock skullBlock) {
+            this.renderMobHead(poseStack,buffer,packedLight,helmet,skullBlock);return;
+        }
+        if (!(item instanceof ArmorItem armorItem)) {
+            return;
+        }
+
+        if (armorItem.getEquipmentSlot() != EquipmentSlot.HEAD) {
+            return;
+        }
 
         // Подготавливаем helmetModel: скрываем всё кроме головы, обнуляем углы.
         // FIX #1: НЕ устанавливаем netHeadYaw/headPitch в helmetModel.head —
@@ -116,7 +141,7 @@ public class BabyCreeperHelmetLayer
 
     private void fitHumanoidHelmetToBabyCreeperHead(PoseStack poseStack) {
         // Смещение вверх чтобы шлем сидел на голове, а не в теле
-        poseStack.translate(0.0, 0.535, 0.0);
+        poseStack.translate(0.0, 0.46, 0.0);
         // Масштаб подгонки
         poseStack.scale(HELMET_SCALE, HELMET_SCALE, HELMET_SCALE);
     }
@@ -167,6 +192,54 @@ public class BabyCreeperHelmetLayer
                 packedLight, OverlayTexture.NO_OVERLAY, 1.0f, 1.0f, 1.0f, 1.0f);
     }
 
+    private void renderMobHead(PoseStack poseStack, MultiBufferSource buffer, int packedLight, ItemStack stack, AbstractSkullBlock skullBlock) {
+        poseStack.pushPose();
+
+        ((BabyCreeperModel<?>) this.getParentModel()).translateToHead(poseStack);
+
+        /*
+         * Подгонка позиции
+         */
+        poseStack.translate(-0.5D, 0.5D, -0.52D);
+
+        /*
+         * Размер головы
+         */
+        poseStack.scale(1.0F, -0.94F, 1.04F);
+
+        SkullBlock.Type skullType = skullBlock.getType();
+
+        SkullModelBase skullModel = this.skullModels.get(skullType);
+
+        if (skullModel == null) {
+            poseStack.popPose();
+            return;
+        }
+
+        GameProfile profile = null;
+
+        CompoundTag tag = stack.getTag();
+
+        if (tag != null && tag.contains("SkullOwner")) {
+            profile = net.minecraft.nbt.NbtUtils.readGameProfile(
+                    tag.getCompound("SkullOwner")
+            );
+        }
+
+        RenderType renderType =
+                SkullBlockRenderer.getRenderType(
+                        skullType,
+                        profile
+                );
+
+        SkullBlockRenderer.renderSkull(
+                null, 0.0F, 0.0F,
+                poseStack, buffer, packedLight, skullModel, renderType
+        );
+
+        poseStack.popPose();
+    }
+
     public ResourceLocation getArmorResource(BabyCreeperEntity entity, ItemStack stack,
                                               EquipmentSlot slot, @Nullable String type) {
         ArmorItem item = (ArmorItem) stack.getItem();
@@ -180,6 +253,6 @@ public class BabyCreeperHelmetLayer
         String path = String.format(Locale.ROOT, "%s:textures/models/armor/%s_layer_1%s.png",
                 domain, texture, type == null ? "" : String.format(Locale.ROOT, "_%s", type));
         path = ForgeHooksClient.getArmorTexture(entity, stack, path, slot, type);
-        return ARMOR_LOCATION_CACHE.computeIfAbsent(path, ResourceLocation::new);
+        return ARMOR_LOCATION_CACHE.computeIfAbsent(path, ResourceLocation::tryParse);
     }
 }
